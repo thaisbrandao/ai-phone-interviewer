@@ -1,0 +1,671 @@
+{
+  "name": "Entrevistador Automatizado con IA",
+  "nodes": [
+    {
+      "parameters": {
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "options": {}
+      },
+      "id": "887bea59-e05a-4da2-a943-d2b6bdd8fb05",
+      "name": "Leer Candidatos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        -560
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "p4yIrItuZWPI1vVT",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": null,
+        "options": {}
+      },
+      "id": "0eac7582-b757-4be5-a39f-982e26cd3594",
+      "name": "SplitInBatches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        -224
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "resource": "call",
+        "from": "YOUR_TWILIO_NUMBER",
+        "to": "+34XXXXXXXXX",
+        "twiml": true,
+        "message": "={{ $json.data }}",
+        "options": {}
+      },
+      "id": "4b7bf5a1-74d9-4d4d-8d30-cc8731ce4617",
+      "name": "Llamada Twilio",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        -416
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "BrsHmNra7HH5Oyem",
+          "name": "Twilio account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Webhook Whisper').item.json.body['RecordingUrl\t'] }}",
+        "responseFormat": "file",
+        "options": {}
+      },
+      "id": "87c3b980-9fa6-4654-a921-43f5ade70c36",
+      "name": "Descargar Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1248,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "sheetId": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit?gid=2044533696#gid=2044533696",
+        "range": "Formulário de candidatura a vaga (respostas)!A:G",
+        "keyRow": 1,
+        "options": {}
+      },
+      "id": "920299d0-6cd3-4713-b0f0-33d3727b2a40",
+      "name": "Guardar en Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -256
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "p4yIrItuZWPI1vVT",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {
+          "language": "es",
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        896,
+        -256
+      ],
+      "id": "ae0c7217-2d90-4693-af43-7f80501866b1",
+      "name": "Transcribe a recording",
+      "alwaysOutputData": true,
+      "credentials": {
+        "openAiApi": {
+          "id": "1u2WND2zNfVyLQ9i",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"urlAudio\"]}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Validar URL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        416,
+        -240
+      ],
+      "id": "b62fc126-f219-4890-94f7-341e3cf307a3"
+    },
+    {
+      "parameters": {
+        "functionCode": "if (!$json.output) {\n  throw new Error('No se encontró el contenido de las preguntas del modelo IA.');\n}\n\nconst textoLimpio = $json.output.replace(/\\\\n/g, '\\n');\nconst preguntas = textoLimpio\n  .split('\\n')\n  .map(p => p.trim())\n  .filter(p => p.length > 0);\n\nreturn [{\n  json: {\n    preguntas,\n    preguntaActual: preguntas[0],\n    paso: 1\n  }\n}];"
+      },
+      "name": "Separar Preguntas2",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -528
+      ],
+      "id": "292c6ef0-5206-4224-89d8-49cde739f008"
+    },
+    {
+      "parameters": {
+        "functionCode": "const pregunta = $json.preguntaActual || 'Gracias por su tiempo, fin de la entrevista.';\n\nconst twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say language=\"es-ES\" voice=\"female\">${pregunta}</Say>\n  <Record action=\"/twilio-transcribe-callback\" method=\"POST\" maxLength=\"30\" finishOnKey=\"*\" transcribe=\"true\" transcribeCallback=\"/twilio-transcribe-callback\" />\n</Response>`;\n\nreturn {\n  headers: { 'Content-Type': 'text/xml' },\n  body: twiml\n};"
+      },
+      "name": "Function - Generar TwiML",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -528
+      ],
+      "id": "c7bf9ba2-f631-46a2-8693-a086a8f0e545"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "data",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        880,
+        -528
+      ],
+      "id": "b283e2c6-2ab8-4fc0-ab7b-a53110a1c667"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Aquí recibes la transcripción y avanzas el paso.\n// Ejemplo simple, imprime la transcripción\n\nconst transcription = $json.TranscriptionText || 'No transcription';\n\nconsole.log('Transcription:', transcription);\n\n// Aquí debes guardar el estado, actualizar la siguiente pregunta, etc.\n\nreturn [{ json: { transcription } }];"
+      },
+      "name": "Function - Procesar transcripción",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        -80
+      ],
+      "id": "b8df18e2-8819-47bc-bc7d-7a62979fea8b"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "=",
+        "includeOtherFields": true,
+        "include": "selected",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1952,
+        -240
+      ],
+      "id": "37cdba04-b8b1-4910-add0-8fdf37ddb0f0",
+      "name": "extrae recordingURL"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "423d845f-e1d1-46b2-9cb9-b07c4ca9204b",
+              "name": "data",
+              "value": "=<Response>\n  <Say>Hola, vamos a comenzar tu entrevista. Por favor responde a la siguiente pregunta.</Say>\n  <Record maxLength=\"30\" action=\"https://your-ngrok-url.ngrok-free.app/webhook/webhook-whisper\" method=\"POST\"/>\n</Response>\n",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        704,
+        -528
+      ],
+      "id": "9aa481aa-cd32-43a4-9396-073e69e17512",
+      "name": "set"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -544
+      ],
+      "id": "19b8569b-6eb1-497a-a524-932e545f9559",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "path": "a2bcfebb-7ec3-44ff-81a6-6b359b9b3964",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -816
+      ],
+      "id": "7ba07277-d567-4157-820a-70bafea87c2b",
+      "name": "Webhook Inicio",
+      "webhookId": "a2bcfebb-7ec3-44ff-81a6-6b359b9b3964"
+    },
+    {
+      "parameters": {
+        "jsCode": "<Response>\n  <Gather action=\"https://TU_NGROK.ngrok-free.app/webhook/respuesta-dtmf\" numDigits=\"1\" timeout=\"5\">\n    <Say voice=\"alice\" language=\"es-ES\">Para confirmar tu entrevista, pulsa 1. Para cancelarla, pulsa 2.</Say>\n  </Gather>\n  <Say>No se recibió ninguna respuesta.</Say>\n</Response>\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        -800
+      ],
+      "id": "c2cd7c7e-91f7-4382-9d49-06a2bdd316a7",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{\n  json: {},\n  binary: {},\n  rawData: `<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?>\\n<Response>\\n  <Gather action=\\\"https://your-ngrok-url.ngrok-free.app/webhook/respuesta-dtmf\\\" numDigits=\\\"1\\\" timeout=\\\"5\\\">\\n    <Say voice=\\\"alice\\\" language=\\\"es-ES\\\">Para confirmar tu entrevista, pulsa 1. Para cancelarla, pulsa 2.</Say>\\n  </Gather>\\n  <Say>No se recibió ninguna respuesta.</Say>\\n</Response>`\n}];"
+      },
+      "id": "ef9b1369-b636-4f36-b63d-1412ac7e3d0c",
+      "name": "Generar TwiML",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "eafc52a7-53e2-4a9e-b956-076ecbf043e3",
+      "name": "Responder TwiML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "path": "respuesta-dtmf",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "36a91eb5-8364-496e-9970-f5d8689694f8",
+      "name": "Webhook Respuesta DTMF",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        -608
+      ],
+      "webhookId": "1b5bc26d-2978-4a8c-a465-8248b3a0f1e8"
+    },
+    {
+      "parameters": {},
+      "id": "e780b825-b19e-4aa3-b0af-b2dc19b85e31",
+      "name": "Evaluar Respuesta",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        1776,
+        -640
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "5be8fc1a-3251-4b5f-ba16-84c30cee8c56",
+      "name": "Confirmado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1936,
+        -656
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "0a3001fd-55b9-441f-94d7-1bb120219d5b",
+      "name": "Cancelado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1952,
+        -480
+      ]
+    },
+    {
+      "parameters": {
+        "path": "webhook-inicio",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "829edae0-8037-4629-b117-8c0b6119c962",
+      "name": "Webhook Inicio2",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        0
+      ],
+      "webhookId": "62fc3125-555f-4a9b-a584-365bcd0d9917"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Genera 3 preguntas de entrevista para el puesto de {{ $json['Qual empresa voce esta interessado'] }} en formato individual, cada una clara y corta.\n\nFormato de salida:\n1. [Pregunta 1]\n2. [Pregunta 2]\n3. [Pregunta 3]\n\nNo incluyas ningún texto explicativo. Solo las preguntas.\n\nEstas preguntas serán leídas en una llamada automatizada. Después de cada pregunta, el sistema esperará una respuesta y hará una pausa de 4 segundos antes de continuar con la siguiente.\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        -96,
+        -688
+      ],
+      "id": "d935cd74-148b-4745-8569-7c546e8f1ccc",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -320,
+        -352
+      ],
+      "id": "f8affea6-1b34-48bd-acb5-c6abc79ceee4",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "1u2WND2zNfVyLQ9i",
+          "name": "OpenAi account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Leer Candidatos": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitInBatches": {
+      "main": [
+        []
+      ]
+    },
+    "Descargar Audio": {
+      "main": [
+        [
+          {
+            "node": "Function - Procesar transcripción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe a recording": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llamada Twilio": {
+      "main": [
+        [
+          {
+            "node": "Evaluar Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en Sheets": {
+      "main": [
+        [
+          {
+            "node": "Validar URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar Preguntas2": {
+      "main": [
+        [
+          {
+            "node": "Function - Generar TwiML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function - Generar TwiML": {
+      "main": [
+        [
+          {
+            "node": "set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Llamada Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function - Procesar transcripción": {
+      "main": [
+        [
+          {
+            "node": "Transcribe a recording",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extrae recordingURL": {
+      "main": [
+        [
+          {
+            "node": "Descargar Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Leer Candidatos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Inicio": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Llamada Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar TwiML": {
+      "main": [
+        [
+          {
+            "node": "Responder TwiML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Respuesta DTMF": {
+      "main": [
+        [
+          {
+            "node": "Evaluar Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar Respuesta": {
+      "main": [
+        [
+          {
+            "node": "Confirmado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancelado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Inicio2": {
+      "main": [
+        [
+          {
+            "node": "Generar TwiML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmado": {
+      "main": [
+        [
+          {
+            "node": "Llamada Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelado": {
+      "main": [
+        [
+          {
+            "node": "extrae recordingURL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "bff845a0-c1b5-4238-91db-801e73065840",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "id": "GdmGmw7MywEFsJdP",
+  "tags": []
+}
